@@ -1,0 +1,282 @@
+---
+title: "Long Term Global Mean Average Monthly Rate of Precipitation (1981-2010) - GEOG490 Project"
+output:
+  html_document:
+    df_print: paged
+---
+
+This RNotebook script reads a netCDF file with the Long Term Global Mean Average Monthly Rate of Precipitation and plots the twelve months. 
+
+First we need to load some libraries
+```{r}
+# load libraries
+library(ncdf4)
+library(CFtime)
+library(lattice)
+library(RColorBrewer)
+library(terra)
+```
+Let's bring in our netCDF file and open it
+```{r}
+# set path and filename
+ncpath <- "/Users/elizalawrence/Documents/GEOG495/data/nc_files/"
+ncname <- "CMAP_precip.mon.ltm"  # (long-term means)
+ncfname <- paste(ncpath, ncname, ".nc", sep="")
+dname <- "precip"
+
+# open a netCDF file
+ncin <- nc_open(ncfname, write = TRUE)
+print(ncin)
+```
+
+Let's figure out our longitude, latitude, and time of the netCDF file
+```{r}
+# get longitude and latitude
+lon <- ncvar_get(ncin,"lon")
+nlon <- dim(lon)
+list(lon)
+
+lat <- ncvar_get(ncin,"lat")
+nlat <- dim(lat)
+list(lat)
+
+print(c(nlon,nlat))
+
+# get time
+time <- ncvar_get(ncin,"time")
+time
+
+tunits <- ncatt_get(ncin,"time","units")
+tunits
+
+dim(time)
+
+nt <- dim(time)
+nt
+```
+
+The longitude values range from 0-360 instead of -180-180. Let's fix that!
+```{r}
+# Convert 0-360 to -180-180
+lon[lon > 180] <- lon[lon > 180] - 360
+
+# Update the longitude variable with the new values
+ncvar_put(ncin, "lon", lon)
+
+#confirm that the longitude values are updated
+lon <- ncvar_get(ncin,"lon")
+nlon <- dim(lon)
+list(lon)
+```
+
+The netCDF file only has one variable: precipitation, so let's make an array of that
+```{r}
+# get precipitation variable
+precip_array <- ncvar_get(ncin,dname)
+dlname <- ncatt_get(ncin,dname,"long_name")
+dunits <- ncatt_get(ncin,dname,"units")
+fillvalue <- ncatt_get(ncin,dname,"_FillValue")
+dim(precip_array)
+```
+
+Let's get the global attributes of our data
+```{r}
+# get global attributes
+title <- ncatt_get(ncin,0,"title")
+institution <- ncatt_get(ncin,0,"institution")
+datasource <- ncatt_get(ncin,0,"source")
+references <- ncatt_get(ncin,0,"references")
+history <- ncatt_get(ncin,0,"history")
+Conventions <- ncatt_get(ncin,0,"Conventions")
+```
+
+Then let's close the netCDF file because we have already read it in
+```{r}
+#close the netCDF file
+nc_close(ncin)
+```
+
+Now we are ready to reshape the netCDF file from a raster to a rectangular 2-D array.
+
+```{r}
+# decode time
+cf <- CFtime(tunits$value, calendar = "proleptic_gregorian", time + 15769752) # convert time to CFtime class, add offset
+cf
+```
+
+```{r}
+timestamps <- CFtimestamp(cf) # get character-string times
+timestamps
+```
+
+```{r}
+class(timestamps)
+```
+
+```{r}
+time_cf <- CFparse(cf, timestamps) # parse the string into date components
+time_cf
+```
+
+```{r}
+class(time_cf)
+```
+
+Some of the values of the precipitation variable are missing or not available, so let's remove those and replace them with NA's
+```{r}
+# replace netCDF fill values with NA's
+precip_array[precip_array==fillvalue$value] <- NA
+length(na.omit(as.vector(precip_array[,,1])))
+```
+
+Now we are ready to create a data frame. First we will create a matrix with the rows of longtitude and latitude pairs.
+```{r}
+# create matrix -- reshape data
+lonlat <- as.matrix(expand.grid(lon,lat))
+dim(lonlat)
+```
+
+Then we will create a vector from the large array
+```{r}
+# reshape the whole array into vector
+precip_vec_long <- as.vector(precip_array)
+length(precip_vec_long)
+```
+
+And now we will combine the precipitation vector and the longitude and latitude vector into a matrix
+```{r}
+# reshape the vector into a matrix
+precip_mat <- matrix(precip_vec_long, nrow=nlon*nlat, ncol=nt)
+dim(precip_mat)
+head(na.omit(precip_mat))
+```
+
+Finally, we can create a dataframe from the matrix we previously created
+```{r}
+# create a dataframe
+lonlat <- as.matrix(expand.grid(lon,lat))
+precip_df02 <- data.frame(cbind(lonlat,precip_mat))
+names(precip_df02) <- c("lon","lat","precipJan","precipFeb","precipMar","precipApr", "precipMay","precipJun", "precipJul","precipAug","precipSep",  "precipOct","precipNov","precipDec")
+head(na.omit(precip_df02, 20))
+dim(na.omit(precip_df02, 20))
+```
+
+```{r}
+# write out the data frame
+csvpath <- "/Users/elizalawrence/Documents/GEOG495/data/csv_files"
+csvname <- "CMAP_precip.mon.ltm_2.csv"
+csvfile <- paste(csvpath, csvname, sep="")
+write.table(na.omit(precip_df02),csvfile, row.names=FALSE, sep=",")
+```
+
+Now that we have our data frame, we can finally visualize our data! First we need to load some more packages
+```{r}
+# load more packages
+library(ggplot2)
+library(maps)
+library(sf)
+library(tidyr)
+library(ggthemes)
+library(stars)
+```
+
+We need to reshape the data frame because of the type of map we are trying to make - a facet wrap
+```{r}
+# Reshape the data frame into long format, excluding 'lon' and 'lat'
+df_long <- gather(precip_df02, key = "month", value = "value", -lon, -lat)
+```
+
+To make sure our months are in sequential order instead of alphabetical we need to define the order and the full names
+```{r}
+# Define the order of months
+month_order <- c("precipJan", "precipFeb", "precipMar", "precipApr","precipMay",
+                 "precipJun","precipJul","precipAug","precipSep","precipOct",
+                 "precipNov","precipDec")  # Add more months as needed
+
+month_names <- c("January", "February", "March", "April", "May", "June", "July",
+                 "August", "September", "October", "November", "December")  # Corresponding month names
+```
+
+```{r}
+# Convert 'month' variable to factor with custom order
+df_long$month <- factor(df_long$month, levels = month_order, labels = month_names)
+```
+
+We also want to put outlines of the world map on our map of precipitation
+```{r}
+#get world map data 
+# Specify the path to your shapefile
+shapefile_path <- "/Users/elizalawrence/Documents/GEOG495/data/ne_110m_coastline/ne_110m_coastline.shp"
+
+# Read the shapefile
+coastline <- st_read(shapefile_path)
+
+```
+
+Let's use ggplot to visualize the long term monthly means of global precipitation
+```{r}
+
+# Create ggplot object with coastline and precipitation data
+p <- ggplot() +
+  geom_tile(data = df_long, aes(x = lon, y = lat, fill = value)) +  # Add precipitation data
+  scale_fill_gradient(low = "white", high = "blue", name = "mm/day") +  # Color scale for precipitation
+  labs(x = "Longitude", y = "Latitude", title = "Long Term (1981-2010) Mean Average Monthly Rate of Precipitation") +  # Labels and title
+  facet_wrap(~ month, nrow = 4) +  # Facet wrap by month with 4 plots per row
+  scale_x_continuous(breaks = seq(-120, 120, by = 60), labels = seq(-120, 120, by = 60), expand = c(0, 0)) +  # Adjust x-axis breaks
+  scale_y_continuous(breaks = seq(-60, 60, by = 60), labels = seq(-60, 60, by = 60), expand = c(0, 0)) +  # Adjust y-axis breaks
+  geom_sf(data = coastline, color = "grey80", inherit.aes = FALSE) +  # Add coastline
+  theme_minimal() + # Minimal theme
+  theme(axis.ticks = element_line(color = "black", linewidth = 0.5))  # Customize axis ticks
+
+# Print the plot
+print(p)
+
+```
+
+Discussion: From this map, we are able to see the long term means of global precipitation compared by month using the facet feature! The maps show that the areas near the equator at 0 degrees latitude, receive on a long term mean average, the most amount rain per month. Additionally, areas over the ocean receive more rain per month, than land masses do. Additionally, longitudes of 60 degrees or higher and -60 degrees or lower receive more rain per month. The area with a longitude of 60 to 120 degrees and a latitude of 15 degrees or so, is southern Asia. It also seems that the more rainy months are July, August, and September, especially near southern Asia which makes sense because that is when it is most humid in that region, and when monsoons occur. The northern part of South America has a pretty steady level of precipitation across all months. Northern Asia (Russia), hardly receives any rain in the months of November-March, but then begins to see more precipitation in the summer months.
+
+
+We can also look at the long-term mean monthly rate of precipitation at a single point, such as Eugene.
+
+First, we find the grid cell closest to Eugene
+```{r}
+# get indices of the grid cell closest to Eugene
+tlon <- -123.1167; tlat <- 44.0833
+j <- which.min(abs(lon-tlon))
+k <- which.min(abs(lat-tlat))
+print(c(j, lon[j], k, lat[k]))
+```
+
+Then, we create a precipitation time series for the single grid cell from the large precipitation array
+```{r}
+# get time series for the closest gridpoint
+precip_ts_eugene <- precip_array[j, k, ]
+```
+
+Then, we turn our month variable into a factor and organize it so they are in time order versus alphabetical
+```{r}
+# month
+month_names <- c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
+month <- rep(month_names)
+head(month); tail(month)
+
+month <- factor(month, levels=month_names)
+class(month)
+```
+
+Then, we can create a data frame of just the precipitation data closest to Eugene
+```{r}
+#create a data frame of the precipitation data closest to Eugene
+precip_ts_eugene_df <- data.frame(precip_ts_eugene, month)
+names(precip_ts_eugene_df) <- c("Precip", "Month")
+head(precip_ts_eugene_df)
+```
+Then, we can create a simple plot!
+```{r}
+#plot of long-term mean precipitation by month closest to Eugene 
+ggplot(precip_ts_eugene_df, aes(x = Month, y = Precip)) +
+  geom_point(size = 0.75) +
+  labs(x = "Month", y = "Precipitation (mm/day)", title = "Long Term (1981-2010) Mean Average Rate of Precipitation of Grid Cell Closest to Eugene, OR")  # Labels and title
+```
+
+The plot shows that the average rate of precipitation is highest in November and December (over 5.5 mm/day0. The rate steadily declines from the months of January until July and then begins increasing again in August. The lowest rate of precipitation occurs in July with approximately 0.25 mm/day. That means that we will soon be done with heavy precipitation rates as summer approaches!
