@@ -18,7 +18,7 @@ library(terra)
 ```
 Let's bring in our netCDF file and open it
 ```{r}
-# set path and filename
+# set path and file name
 ncpath <- "/Users/elizalawrence/Documents/GEOG495/data/nc_files/"
 ncname <- "CMAP_precip.mon.ltm"  # (long-term means)
 ncfname <- paste(ncpath, ncname, ".nc", sep="")
@@ -129,7 +129,7 @@ precip_array[precip_array==fillvalue$value] <- NA
 length(na.omit(as.vector(precip_array[,,1])))
 ```
 
-Now we are ready to create a data frame. First we will create a matrix with the rows of longtitude and latitude pairs.
+Now we are ready to create a data frame. First we will create a matrix with the rows of longitude and latitude pairs.
 ```{r}
 # create matrix -- reshape data
 lonlat <- as.matrix(expand.grid(lon,lat))
@@ -151,9 +151,9 @@ dim(precip_mat)
 head(na.omit(precip_mat))
 ```
 
-Finally, we can create a dataframe from the matrix we previously created
+Finally, we can create a data frame from the matrix we previously created
 ```{r}
-# create a dataframe
+# create a data frame
 lonlat <- as.matrix(expand.grid(lon,lat))
 precip_df02 <- data.frame(cbind(lonlat,precip_mat))
 names(precip_df02) <- c("lon","lat","precipJan","precipFeb","precipMar","precipApr", "precipMay","precipJun", "precipJul","precipAug","precipSep",  "precipOct","precipNov","precipDec")
@@ -205,10 +205,10 @@ df_long$month <- factor(df_long$month, levels = month_order, labels = month_name
 We also want to put outlines of the world map on our map of precipitation
 ```{r}
 #get world map data 
-# Specify the path to your shapefile
+# Specify the path to your shape file
 shapefile_path <- "/Users/elizalawrence/Documents/GEOG495/data/ne_110m_coastline/ne_110m_coastline.shp"
 
-# Read the shapefile
+# Read the shape file
 coastline <- st_read(shapefile_path)
 
 ```
@@ -249,7 +249,7 @@ print(c(j, lon[j], k, lat[k]))
 
 Then, we create a precipitation time series for the single grid cell from the large precipitation array
 ```{r}
-# get time series for the closest gridpoint
+# get time series for the closest grid point
 precip_ts_eugene <- precip_array[j, k, ]
 ```
 
